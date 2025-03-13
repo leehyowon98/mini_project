@@ -1,3 +1,5 @@
+##yolo5없는거
+
 import easyocr
 import cv2
 import matplotlib.pyplot as plt
