@@ -23,7 +23,9 @@ else:
         if conf > 0.4 and int(cls) == 2:  # 차량 클래스 (2번 클래스)
             x1, y1, x2, y2 = map(int, xyxy)
             car_detected.append((x1, y1, x2, y2))
+            # 차량 영역 표시 및 라벨 추가
             cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)  # 차량 영역 표시
+            cv2.putText(img, 'car', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3, cv2.LINE_AA)  # 'car' 라벨 크기 늘리기
 
     # 번호판 인식
     THRESHOLD = 0.1  # 임계값 설정
@@ -50,6 +52,7 @@ else:
     # 차량 번호판 출력
     for idx, plate in enumerate(plates):
         print(f"차량 {idx+1} 번호판: {plate}")
+
 
     # 이미지 크기 조정 (비율 유지)
     height, width = img.shape[:2]
