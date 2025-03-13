@@ -17,9 +17,7 @@
 pip install easyocr opencv-python matplotlib
 코드 설명
 1. 라이브러리 임포트
-python
-복사
-편집
+
 import easyocr
 import cv2
 import matplotlib.pyplot as plt
@@ -27,30 +25,22 @@ easyocr: 이미지에서 텍스트를 인식하는 라이브러리
 cv2: 이미지 처리 및 표시를 위한 OpenCV
 matplotlib.pyplot: 이미지를 화면에 출력하기 위한 라이브러리
 2. OCR 리더 객체 생성
-python
-복사
-편집
+
 reader = easyocr.Reader(['ko', 'en'], gpu=False)
 easyocr.Reader를 사용하여 한글(ko)과 영어(en) 텍스트를 인식할 수 있는 리더 객체를 생성합니다.
 GPU를 사용하지 않고 CPU에서만 동작하도록 설정합니다.
 3. 이미지 읽기 및 출력
-python
-복사
-편집
+
 img_path = 'C:/workspace/mini_project/data/222.jpg'
 img = cv2.imread(img_path)
 이미지 경로를 지정하고 cv2.imread()를 통해 이미지를 읽습니다.
 이미지가 정상적으로 열렸는지 확인하고, Matplotlib을 사용하여 이미지를 화면에 출력합니다.
 4. OCR 실행 및 결과 처리
-python
-복사
-편집
+
 result = reader.readtext(img)
 EasyOCR을 사용하여 이미지에서 텍스트를 추출합니다.
 5. 번호판 인식 및 필터링
-python
-복사
-편집
+
 THRESHOLD = 0.1
 plates = []
 current_plate = ""
@@ -65,16 +55,12 @@ for bbox, text, conf in result:
 임계값(0.1)을 설정하여 신뢰도가 낮은 결과는 무시하고, 텍스트를 추출하여 번호판을 구성합니다.
 번호판 텍스트가 일정 길이를 넘으면 새로운 번호판으로 분리하여 리스트에 저장합니다.
 6. 번호판 출력
-python
-복사
-편집
+
 for idx, plate in enumerate(plates):
     print(f"차량 {idx+1} 번호판: {plate}")
 추출된 번호판을 출력합니다.
 7. 번호판 영역을 이미지에 표시
-python
-복사
-편집
+
 plt.figure(figsize=(8, 8))
 plt.imshow(img[:, :, ::-1])
 plt.axis('off')
