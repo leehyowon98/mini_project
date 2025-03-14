@@ -23,18 +23,4 @@
 
 ---
 
-## 프로젝트 구조
----
 
-## 설치 및 실행 방법
-
-### 1. 의존성 설치
-
-이 프로젝트를 실행하기 위해 필요한 패키지를 먼저 설치해야 합니다. 아래 명령어를 사용하여 필요한 라이브러리를 설치하세요:
-
-```bash
-pip install torch easyocr pyqt5 opencv-python numpy
-python license_plate_recognition.py
-self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)  # 해상도 설정 (너비)
-self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)  # 해상도 설정 (높이)
----
