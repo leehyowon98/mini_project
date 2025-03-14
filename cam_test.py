@@ -1,6 +1,3 @@
-## 수정해야됨
-
-
 import sys
 import torch
 import easyocr
@@ -23,7 +20,9 @@ class LicensePlateRecognitionApp(QWidget):
         self.reader = easyocr.Reader(['ko', 'en'], gpu=False)
 
         # 카메라 캡처
-        self.cap = cv2.VideoCapture(0)  # 기본 카메라
+        self.cap = cv2.VideoCapture(0)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)  # 해상도 설정 (너비)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)  # 해상도 설정 (높이)
 
         # 카메라 스트리밍을 위한 스레드 생성
         self.thread = VideoCaptureThread(self.cap)
@@ -120,8 +119,8 @@ class LicensePlateRecognitionApp(QWidget):
 
     def closeEvent(self, event):
         """윈도우 닫을 때 카메라 리소스 해제"""
+        self.thread.stop()
         self.cap.release()
-        self.thread.quit()
         event.accept()
 
 
@@ -132,14 +131,25 @@ class VideoCaptureThread(QThread):
         super().__init__()
         self.cap = cap
         self.latest_frame = None
+        self.running = True  # 종료 플래그
 
     def run(self):
         """비디오 캡처 및 프레임 송출"""
-        while True:
+        while self.running:
             ret, frame = self.cap.read()
             if ret:
                 self.latest_frame = frame
                 self.change_pixmap_signal.emit(frame)
+
+            # `q` 키를 누르면 종료
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                self.stop()
+
+    def stop(self):
+        """스레드 종료"""
+        self.running = False
+        self.quit()
+        self.wait()
 
 
 if __name__ == '__main__':

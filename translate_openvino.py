@@ -90,8 +90,10 @@ class LicensePlateRecognitionApp(QWidget):
                 cv2.putText(img, 'car', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
 
         # EasyOCR을 이용한 번호판 인식
-        THRESHOLD = 0.5  # 신뢰도 기준을 좀 더 높임
+        THRESHOLD = 0.1  # 신뢰도 기준을 좀 더 높임
         plates = []
+        current_plate = ""
+
 
         print("번호판 인식 시작")
         for bbox, text, conf in self.reader.readtext(img):
@@ -129,6 +131,7 @@ class LicensePlateRecognitionApp(QWidget):
         if plates:
             for idx, plate in enumerate(plates):
                 self.list_plates.addItem(f"차량 {idx + 1} 번호판: {plate}")
+
         else:
             self.list_plates.addItem("번호판을 인식할 수 없습니다.")
 
