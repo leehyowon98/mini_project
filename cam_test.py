@@ -3,6 +3,7 @@ import torch
 import easyocr
 import cv2
 import numpy as np
+import re  # 정규식 라이브러리 추가
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QListWidget
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal
@@ -20,9 +21,9 @@ class LicensePlateRecognitionApp(QWidget):
         self.reader = easyocr.Reader(['ko', 'en'], gpu=False)
 
         # 카메라 캡처
-        self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)  # 해상도 설정 (너비)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)  # 해상도 설정 (높이)
+        self.cap = cv2.VideoCapture(5)  # 기본 카메라
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 해상도 증가
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
         # 카메라 스트리밍을 위한 스레드 생성
         self.thread = VideoCaptureThread(self.cap)
@@ -32,7 +33,7 @@ class LicensePlateRecognitionApp(QWidget):
         # 타이머를 설정하여 실시간으로 프레임 갱신
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)  # 30ms마다 프레임 갱신
+        self.timer.start(20)  # 30ms마다 프레임 갱신
 
     def initUI(self):
         self.setWindowTitle('차량 번호판 인식 시스템')
@@ -66,34 +67,42 @@ class LicensePlateRecognitionApp(QWidget):
         """번호판 인식 처리"""
         # YOLOv5로 차량 감지
         results = self.model(img)
-        car_detected = []
+        cars_detected = []
+
         for *xyxy, conf, cls in results.xyxy[0]:
-            if conf > 0.4 and int(cls) == 2:  # 차량 클래스
+            if conf > 0.4 and int(cls) == 2:  # 차량 클래스 (클래스 ID는 모델에 따라 다를 수 있음)
                 x1, y1, x2, y2 = map(int, xyxy)
-                car_detected.append((x1, y1, x2, y2))
+                cars_detected.append((x1, y1, x2, y2))
                 cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                cv2.putText(img, 'car', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
+                cv2.putText(img, 'Car', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
 
         # EasyOCR을 이용한 번호판 인식
         THRESHOLD = 0.1
-        plates = []
-        current_plate = ""
+        plates_by_car = {i: [] for i in range(len(cars_detected))}  # 차량별 번호판 저장
 
         for bbox, text, conf in self.reader.readtext(img):
             if conf > THRESHOLD:
-                for (x1, y1, x2, y2) in car_detected:
-                    if x1 < bbox[0][0] < x2 and y1 < bbox[0][1] < y2:  # 차량 내부의 문자만 인식
-                        current_plate += text
-                        cv2.rectangle(img, tuple(map(int, bbox[0])), tuple(map(int, bbox[2])), (0, 255, 255), 3)
+                x_text, y_text = bbox[0]  # 인식된 텍스트의 좌표 (좌측 상단)
 
-                        if len(current_plate) > 5:
-                            plates.append(current_plate)
-                            current_plate = ""
+                # 🔹 한글과 숫자만 필터링
+                filtered_text = re.sub(r'[^가-힣0-9]', '', text)
 
-        if current_plate:
-            plates.append(current_plate)
+                if filtered_text:  # 유효한 텍스트만 처리
+                    for i, (x1, y1, x2, y2) in enumerate(cars_detected):
+                        if x1 < x_text < x2 and y1 < y_text < y2:  # 차량 내부의 문자만 인식
+                            plates_by_car[i].append(filtered_text)
+                            cv2.rectangle(img, tuple(map(int, bbox[0])), tuple(map(int, bbox[2])), (0, 255, 255), 3)
+
+        # 최종 번호판 리스트 생성 (각 차량별로 번호판 문자열 합치기)
+        plates = []
+        for i in range(len(cars_detected)):
+            if plates_by_car[i]:  # 번호판이 인식된 경우
+                plate_number = "".join(plates_by_car[i])
+                plates.append(plate_number)
 
         return plates, img
+
+
 
     def displayImage(self, img):
         """이미지 표시"""
