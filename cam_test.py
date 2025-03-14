@@ -1,99 +1,149 @@
+## 수정해야됨
+
+
+import sys
 import torch
 import easyocr
 import cv2
-import warnings
+import numpy as np
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QListWidget
+from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtCore import QTimer, QThread, pyqtSignal
 
-# 경고 메시지 숨기기
-warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
-# YOLOv5 모델 로딩 (사전 훈련된 모델 사용)
-model = torch.hub.load('ultralytics/yolov5', 'yolov5s')  # 'yolov5s' 모델 사용 (빠르지만 정확도가 낮을 수 있음)
+class LicensePlateRecognitionApp(QWidget):
+    def __init__(self):
+        super().__init__()
 
-# EasyOCR 모델 로딩 (GPU 대신 CPU 사용)
-reader = easyocr.Reader(['ko', 'en'], gpu=False)
+        self.initUI()
 
-# 동영상 파일 열기
-video_path = 'C:/workspace/mini_project/data/test.mov'  # 동영상 파일 경로 지정
-cap = cv2.VideoCapture(video_path)
+        # YOLOv5 모델 로드
+        self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+        # EasyOCR 모델 로드
+        self.reader = easyocr.Reader(['ko', 'en'], gpu=False)
 
-if not cap.isOpened():
-    print("동영상을 열 수 없습니다.")
-else:
-    # 동영상 저장을 위한 VideoWriter 객체 생성
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')  # XVID 코덱 사용
-    output_path = 'output_video.avi'  # 출력 동영상 파일 경로
-    out = cv2.VideoWriter(output_path, fourcc, 30.0, (640, 480))  # 프레임 크기 및 FPS 설정
+        # 카메라 캡처
+        self.cap = cv2.VideoCapture(0)  # 기본 카메라
 
-    while True:
-        # 동영상에서 프레임을 읽어옴
-        ret, img = cap.read()
+        # 카메라 스트리밍을 위한 스레드 생성
+        self.thread = VideoCaptureThread(self.cap)
+        self.thread.change_pixmap_signal.connect(self.update_image)
+        self.thread.start()
 
-        if not ret:
-            print("프레임을 읽을 수 없습니다.")
-            break
+        # 타이머를 설정하여 실시간으로 프레임 갱신
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(30)  # 30ms마다 프레임 갱신
 
-        # YOLOv5로 모든 객체 감지
-        results = model(img)
+    def initUI(self):
+        self.setWindowTitle('차량 번호판 인식 시스템')
+        self.setGeometry(100, 100, 800, 600)
 
-        # 감지된 객체의 좌표와 라벨 추출 (모든 객체 감지)
+        # 이미지 표시 라벨
+        self.label_img = QLabel(self)
+        self.label_img.setFixedSize(640, 480)
+
+        # 번호판 리스트 출력
+        self.list_plates = QListWidget(self)
+
+        # 레이아웃 설정
+        layout = QVBoxLayout()
+        layout.addWidget(self.label_img)
+        layout.addWidget(self.list_plates)
+        self.setLayout(layout)
+
+    def update_frame(self):
+        """타이머로 갱신되는 프레임 처리"""
+        if self.thread.latest_frame is not None:
+            plates, processed_img = self.detectLicensePlates(self.thread.latest_frame)
+            self.displayImage(processed_img)
+            self.displayPlates(plates)
+
+    def update_image(self, frame):
+        """스레드에서 받은 프레임을 최신 프레임으로 업데이트"""
+        self.thread.latest_frame = frame
+
+    def detectLicensePlates(self, img):
+        """번호판 인식 처리"""
+        # YOLOv5로 차량 감지
+        results = self.model(img)
         car_detected = []
         for *xyxy, conf, cls in results.xyxy[0]:
-            if conf > 0.4:  # 신뢰도 기준을 낮추어 모든 객체를 감지하도록 변경
+            if conf > 0.4 and int(cls) == 2:  # 차량 클래스
                 x1, y1, x2, y2 = map(int, xyxy)
                 car_detected.append((x1, y1, x2, y2))
-                # 객체 영역 표시 및 라벨 추가
-                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)  # 객체 영역 표시
-                cv2.putText(img, f'{results.names[int(cls)]}', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3, cv2.LINE_AA)
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                cv2.putText(img, 'car', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
 
-        # 번호판 인식
-        THRESHOLD = 0.1  # 임계값 설정
+        # EasyOCR을 이용한 번호판 인식
+        THRESHOLD = 0.1
         plates = []
         current_plate = ""
 
-        for bbox, text, conf in reader.readtext(img):  # EasyOCR을 통해 텍스트 읽기
+        for bbox, text, conf in self.reader.readtext(img):
             if conf > THRESHOLD:
-                # 텍스트가 번호판 영역에 있을 경우만 처리
                 for (x1, y1, x2, y2) in car_detected:
-                    if x1 < bbox[0][0] < x2 and y1 < bbox[0][1] < y2:
-                        current_plate += text  # 텍스트를 이어붙임
-                        cv2.rectangle(img, pt1=tuple(map(int, bbox[0])), pt2=tuple(map(int, bbox[2])), color=(0, 255, 0), thickness=3)
+                    if x1 < bbox[0][0] < x2 and y1 < bbox[0][1] < y2:  # 차량 내부의 문자만 인식
+                        current_plate += text
+                        cv2.rectangle(img, tuple(map(int, bbox[0])), tuple(map(int, bbox[2])), (0, 255, 255), 3)
 
-                        # 번호판의 끝을 판단할 기준
-                        if len(current_plate) > 5:  # 예시 기준: 번호판 길이가 5 이상이면 분리
+                        if len(current_plate) > 5:
                             plates.append(current_plate)
                             current_plate = ""
 
-        # 마지막 번호판 추가
         if current_plate:
             plates.append(current_plate)
 
-        # 차량 번호판 출력
+        return plates, img
+
+    def displayImage(self, img):
+        """이미지 표시"""
+        if img is None:
+            return
+
+        # OpenCV 이미지 → QImage 변환
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        height, width, channel = img.shape
+        bytes_per_line = channel * width
+        q_image = QImage(img.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(q_image)
+
+        # QLabel에 이미지 설정
+        self.label_img.setPixmap(pixmap)
+        self.label_img.setScaledContents(True)
+
+    def displayPlates(self, plates):
+        """번호판 리스트 출력"""
+        self.list_plates.clear()
         for idx, plate in enumerate(plates):
-            print(f"차량 {idx+1} 번호판: {plate}")
+            self.list_plates.addItem(f"차량 {idx + 1} 번호판: {plate}")
 
-        # 이미지 크기 조정 (비율 유지)
-        height, width = img.shape[:2]
-        max_size = 800  # 최대 크기 설정
+    def closeEvent(self, event):
+        """윈도우 닫을 때 카메라 리소스 해제"""
+        self.cap.release()
+        self.thread.quit()
+        event.accept()
 
-        if max(height, width) > max_size:
-            scale = max_size / max(height, width)
-            new_width = int(width * scale)
-            new_height = int(height * scale)
-            img_resized = cv2.resize(img, (new_width, new_height))
-        else:
-            img_resized = img
 
-        # OpenCV로 이미지 표시
-        cv2.imshow("Detected Image", img_resized)
+class VideoCaptureThread(QThread):
+    change_pixmap_signal = pyqtSignal(np.ndarray)
 
-        # 동영상 파일에 프레임 저장
-        out.write(img_resized)
+    def __init__(self, cap):
+        super().__init__()
+        self.cap = cap
+        self.latest_frame = None
 
-        # 'q' 키를 누르면 종료
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    def run(self):
+        """비디오 캡처 및 프레임 송출"""
+        while True:
+            ret, frame = self.cap.read()
+            if ret:
+                self.latest_frame = frame
+                self.change_pixmap_signal.emit(frame)
 
-    # 동영상 리소스 해제
-    cap.release()
-    out.release()
-    cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = LicensePlateRecognitionApp()
+    window.show()
+    sys.exit(app.exec_())

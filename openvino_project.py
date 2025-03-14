@@ -1,3 +1,5 @@
+## gui없는 웹캠동작
+
 import torch
 import cv2
 import numpy as np

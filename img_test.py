@@ -1,72 +1,112 @@
+##GUI추가한거 동작함
+
+
+import sys
 import torch
 import easyocr
 import cv2
+import numpy as np
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QListWidget, QVBoxLayout, QFileDialog
+from PyQt5.QtGui import QPixmap, QImage
 
-# YOLOv5 모델 로딩 (사전 훈련된 모델 사용)
-model = torch.hub.load('ultralytics/yolov5', 'yolov5s')  # 'yolov5s' 모델 사용 (빠르지만 정확도가 낮을 수 있음)
+class LicensePlateRecognitionApp(QWidget):
+    def __init__(self):
+        super().__init__()
 
-# EasyOCR 모델 로딩 (GPU 대신 CPU 사용)
-reader = easyocr.Reader(['ko', 'en'], gpu=False)
+        self.initUI()
+        self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)  # YOLOv5 모델 로드
+        self.reader = easyocr.Reader(['ko', 'en'], gpu=False)  # OCR 모델 로드
 
-img_path = 'C:/workspace/mini_project/data/222.jpg'
-img = cv2.imread(img_path)
+    def initUI(self):
+        self.setWindowTitle('차량 번호판 인식 시스템')
+        self.setGeometry(100, 100, 800, 600)
 
-if img is None:
-    print("이미지를 열 수 없습니다. 경로를 확인해주세요.")
-else:
-    # YOLOv5로 차량 감지
-    results = model(img)
+        # 버튼
+        self.btn_load = QPushButton('이미지 불러오기', self)
+        self.btn_load.clicked.connect(self.loadImage)
 
-    # 감지된 객체의 좌표와 라벨 추출 (차량 클래스는 COCO 데이터셋의 2번 클래스 (car))
-    car_detected = []
-    for *xyxy, conf, cls in results.xyxy[0]:
-        if conf > 0.4 and int(cls) == 2:  # 차량 클래스 (2번 클래스)
-            x1, y1, x2, y2 = map(int, xyxy)
-            car_detected.append((x1, y1, x2, y2))
-            # 차량 영역 표시 및 라벨 추가
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)  # 차량 영역 표시
-            cv2.putText(img, 'car', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3, cv2.LINE_AA)  # 'car' 라벨 크기 늘리기
+        # 이미지 표시 라벨
+        self.label_img = QLabel(self)
+        self.label_img.setFixedSize(640, 480)
 
-    # 번호판 인식
-    THRESHOLD = 0.1  # 임계값 설정
-    plates = []
-    current_plate = ""
+        # 번호판 리스트 출력
+        self.list_plates = QListWidget(self)
 
-    for bbox, text, conf in reader.readtext(img):  # EasyOCR을 통해 텍스트 읽기
-        if conf > THRESHOLD:
-            # 텍스트가 번호판 영역에 있을 경우만 처리
-            for (x1, y1, x2, y2) in car_detected:
-                if x1 < bbox[0][0] < x2 and y1 < bbox[0][1] < y2:
-                    current_plate += text  # 텍스트를 이어붙임
-                    cv2.rectangle(img, pt1=tuple(map(int, bbox[0])), pt2=tuple(map(int, bbox[2])), color=(0, 255, 0), thickness=3)
+        # 레이아웃
+        layout = QVBoxLayout()
+        layout.addWidget(self.btn_load)
+        layout.addWidget(self.label_img)
+        layout.addWidget(self.list_plates)
+        self.setLayout(layout)
 
-                    # 번호판의 끝을 판단할 기준
-                    if len(current_plate) > 5:  # 예시 기준: 번호판 길이가 5 이상이면 분리
-                        plates.append(current_plate)
-                        current_plate = ""
+    def loadImage(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "이미지 선택", "", "Images (*.png *.jpg *.jpeg)", options=options)
 
-    # 마지막 번호판 추가
-    if current_plate:
-        plates.append(current_plate)
+        if file_path:
+            plates, processed_img = self.detectLicensePlates(file_path)
+            self.displayImage(processed_img)  # 이미지 표시
+            self.displayPlates(plates)  # 번호판 리스트 표시
 
-    # 차량 번호판 출력
-    for idx, plate in enumerate(plates):
-        print(f"차량 {idx+1} 번호판: {plate}")
+    def detectLicensePlates(self, img_path):
+        img = cv2.imread(img_path)
+        if img is None:
+            print("이미지를 불러올 수 없습니다.")
+            return [], None
 
+        # YOLOv5를 이용한 차량 감지
+        results = self.model(img)
+        car_detected = []
+        for *xyxy, conf, cls in results.xyxy[0]:
+            if conf > 0.4 and int(cls) == 2:  # 차량 클래스
+                x1, y1, x2, y2 = map(int, xyxy)
+                car_detected.append((x1, y1, x2, y2))
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                cv2.putText(img, 'car', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv2.LINE_AA)
 
-    # 이미지 크기 조정 (비율 유지)
-    height, width = img.shape[:2]
-    max_size = 800  # 최대 크기 설정
+        # EasyOCR을 이용한 번호판 인식
+        THRESHOLD = 0.1
+        plates = []
+        current_plate = ""
 
-    if max(height, width) > max_size:
-        scale = max_size / max(height, width)
-        new_width = int(width * scale)
-        new_height = int(height * scale)
-        img_resized = cv2.resize(img, (new_width, new_height))
-    else:
-        img_resized = img
+        for bbox, text, conf in self.reader.readtext(img):
+            if conf > THRESHOLD:
+                for (x1, y1, x2, y2) in car_detected:
+                    if x1 < bbox[0][0] < x2 and y1 < bbox[0][1] < y2:  # 차량 내부의 문자만 인식
+                        current_plate += text
+                        cv2.rectangle(img, tuple(map(int, bbox[0])), tuple(map(int, bbox[2])), (0, 255, 255), 3)
 
-    # OpenCV로 이미지 표시
-    cv2.imshow("Detected Image", img_resized)
-    cv2.waitKey(0)  # 키 입력을 기다림
-    cv2.destroyAllWindows()  # 창 닫기
+                        if len(current_plate) > 5:
+                            plates.append(current_plate)
+                            current_plate = ""
+
+        if current_plate:
+            plates.append(current_plate)
+
+        return plates, img
+
+    def displayImage(self, img):
+        if img is None:
+            return
+
+        # OpenCV 이미지 → QImage 변환
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        height, width, channel = img.shape
+        bytes_per_line = channel * width
+        q_image = QImage(img.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(q_image)
+
+        # QLabel에 이미지 설정
+        self.label_img.setPixmap(pixmap)
+        self.label_img.setScaledContents(True)
+
+    def displayPlates(self, plates):
+        self.list_plates.clear()
+        for idx, plate in enumerate(plates):
+            self.list_plates.addItem(f"차량 {idx + 1} 번호판: {plate}")
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = LicensePlateRecognitionApp()
+    window.show()
+    sys.exit(app.exec_())
